@@ -1,23 +1,48 @@
+import { db } from '../db';
+import { usersTable, withdrawalsTable } from '../db/schema';
 import { type CreateWithdrawalInput, type Withdrawal } from '../schema';
+import { eq } from 'drizzle-orm';
 
-export async function createWithdrawal(input: CreateWithdrawalInput): Promise<Withdrawal> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to create a new withdrawal request.
-    // Implementation should:
-    // 1. Check if user has sufficient balance for withdrawal
-    // 2. Create withdrawal record with PENDING status
-    // 3. Optionally: Reserve the amount from user balance (put on hold)
-    // 4. Return the created withdrawal
-    return Promise.resolve({
-        id: 0, // Placeholder ID
+export const createWithdrawal = async (input: CreateWithdrawalInput): Promise<Withdrawal> => {
+  try {
+    // First, verify that the user exists and has sufficient balance
+    const users = await db.select()
+      .from(usersTable)
+      .where(eq(usersTable.id, input.user_id))
+      .execute();
+
+    if (users.length === 0) {
+      throw new Error(`User with ID ${input.user_id} not found`);
+    }
+
+    const user = users[0];
+    const currentBalance = parseFloat(user.balance);
+
+    if (currentBalance < input.amount) {
+      throw new Error(`Insufficient balance. Current balance: ${currentBalance}, requested withdrawal: ${input.amount}`);
+    }
+
+    // Create withdrawal record with PENDING status
+    const result = await db.insert(withdrawalsTable)
+      .values({
         user_id: input.user_id,
-        amount: input.amount,
+        amount: input.amount.toString(), // Convert number to string for numeric column
         bank_name: input.bank_name,
         account_number: input.account_number,
         account_holder_name: input.account_holder_name,
-        status: 'PENDING',
-        admin_notes: null,
-        created_at: new Date(),
-        updated_at: new Date()
-    } as Withdrawal);
-}
+        status: 'PENDING'
+      })
+      .returning()
+      .execute();
+
+    // Convert numeric fields back to numbers before returning
+    const withdrawal = result[0];
+    return {
+      ...withdrawal,
+      amount: parseFloat(withdrawal.amount) // Convert string back to number
+    };
+  } catch (error) {
+    console.error('Withdrawal creation failed:', error);
+    throw error;
+  }
+};

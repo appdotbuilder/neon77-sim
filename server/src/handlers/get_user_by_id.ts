@@ -1,20 +1,27 @@
+import { db } from '../db';
+import { usersTable } from '../db/schema';
+import { eq } from 'drizzle-orm';
 import { type GetUserByIdInput, type User } from '../schema';
 
-export async function getUserById(input: GetUserByIdInput): Promise<User> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to fetch a user by their ID.
-    // Implementation should:
-    // 1. Query database for user with given ID
-    // 2. Return user data if found
-    // 3. Throw error if user not found
-    return Promise.resolve({
-        id: input.user_id,
-        username: 'placeholder_user',
-        email: 'user@example.com',
-        password_hash: '', // Should not be returned
-        balance: 0,
-        is_admin: false,
-        created_at: new Date(),
-        updated_at: new Date()
-    } as User);
-}
+export const getUserById = async (input: GetUserByIdInput): Promise<User> => {
+  try {
+    const users = await db.select()
+      .from(usersTable)
+      .where(eq(usersTable.id, input.user_id))
+      .execute();
+
+    if (users.length === 0) {
+      throw new Error(`User with ID ${input.user_id} not found`);
+    }
+
+    // Convert numeric field back to number
+    const user = users[0];
+    return {
+      ...user,
+      balance: parseFloat(user.balance) // Convert string back to number
+    };
+  } catch (error) {
+    console.error('Failed to get user by ID:', error);
+    throw error;
+  }
+};

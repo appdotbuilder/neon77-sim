@@ -1,25 +1,78 @@
+import { db } from '../db';
+import { withdrawalsTable, usersTable } from '../db/schema';
 import { type ProcessWithdrawalInput, type Withdrawal } from '../schema';
+import { eq } from 'drizzle-orm';
 
 export async function processWithdrawal(input: ProcessWithdrawalInput): Promise<Withdrawal> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is for admin to approve/reject withdrawal requests.
-    // Implementation should:
-    // 1. Find withdrawal by withdrawal_id
-    // 2. Update withdrawal status and admin_notes
-    // 3. If APPROVED: deduct amount from user's balance
-    // 4. If REJECTED: return reserved amount to user's available balance
-    // 5. Update withdrawal's updated_at timestamp
-    // 6. Return updated withdrawal
-    return Promise.resolve({
-        id: input.withdrawal_id,
-        user_id: 1, // Placeholder
-        amount: 100, // Placeholder
-        bank_name: 'Placeholder Bank',
-        account_number: '1234567890',
-        account_holder_name: 'Placeholder Name',
+  try {
+    // First, find the withdrawal by ID
+    const existingWithdrawals = await db.select()
+      .from(withdrawalsTable)
+      .where(eq(withdrawalsTable.id, input.withdrawal_id))
+      .execute();
+
+    if (existingWithdrawals.length === 0) {
+      throw new Error('Withdrawal not found');
+    }
+
+    const withdrawal = existingWithdrawals[0];
+
+    // Check if withdrawal is already processed
+    if (withdrawal.status !== 'PENDING') {
+      throw new Error('Withdrawal has already been processed');
+    }
+
+    // Handle balance changes based on status
+    if (input.status === 'APPROVED') {
+      // Get current user balance
+      const users = await db.select()
+        .from(usersTable)
+        .where(eq(usersTable.id, withdrawal.user_id))
+        .execute();
+
+      if (users.length === 0) {
+        throw new Error('User not found');
+      }
+
+      const currentBalance = parseFloat(users[0].balance);
+      const withdrawalAmount = parseFloat(withdrawal.amount);
+      const newBalance = currentBalance - withdrawalAmount;
+      
+      if (newBalance < 0) {
+        throw new Error('Insufficient balance for withdrawal');
+      }
+
+      // Deduct amount from user's balance
+      await db.update(usersTable)
+        .set({
+          balance: newBalance.toString(),
+          updated_at: new Date()
+        })
+        .where(eq(usersTable.id, withdrawal.user_id))
+        .execute();
+    }
+    // Note: For REJECTED status, we don't need to modify balance as the withdrawal never happened
+
+    // Update withdrawal status and admin notes
+    const updatedWithdrawals = await db.update(withdrawalsTable)
+      .set({
         status: input.status,
         admin_notes: input.admin_notes || null,
-        created_at: new Date(),
         updated_at: new Date()
-    } as Withdrawal);
+      })
+      .where(eq(withdrawalsTable.id, input.withdrawal_id))
+      .returning()
+      .execute();
+
+    const updatedWithdrawal = updatedWithdrawals[0];
+
+    // Convert numeric fields back to numbers
+    return {
+      ...updatedWithdrawal,
+      amount: parseFloat(updatedWithdrawal.amount)
+    };
+  } catch (error) {
+    console.error('Withdrawal processing failed:', error);
+    throw error;
+  }
 }

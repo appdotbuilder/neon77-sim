@@ -1,11 +1,23 @@
+import { db } from '../db';
+import { depositsTable } from '../db/schema';
 import { type GetUserDepositsInput, type Deposit } from '../schema';
+import { eq, desc } from 'drizzle-orm';
 
-export async function getUserDeposits(input: GetUserDepositsInput): Promise<Deposit[]> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to fetch all deposits for a specific user.
-    // Implementation should:
-    // 1. Query database for deposits where user_id matches input
-    // 2. Order by created_at descending (most recent first)
-    // 3. Return array of deposits
-    return Promise.resolve([]);
-}
+export const getUserDeposits = async (input: GetUserDepositsInput): Promise<Deposit[]> => {
+  try {
+    const results = await db.select()
+      .from(depositsTable)
+      .where(eq(depositsTable.user_id, input.user_id))
+      .orderBy(desc(depositsTable.created_at))
+      .execute();
+
+    // Convert numeric fields back to numbers for all deposits
+    return results.map(deposit => ({
+      ...deposit,
+      amount: parseFloat(deposit.amount) // Convert numeric field from string to number
+    }));
+  } catch (error) {
+    console.error('Failed to get user deposits:', error);
+    throw error;
+  }
+};

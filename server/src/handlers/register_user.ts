@@ -1,21 +1,64 @@
+import { db } from '../db';
+import { usersTable } from '../db/schema';
 import { type RegisterUserInput, type User } from '../schema';
+import { eq, or } from 'drizzle-orm';
 
-export async function registerUser(input: RegisterUserInput): Promise<User> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to register a new user account.
-    // Implementation should:
-    // 1. Hash the password before storing
-    // 2. Check if username/email already exists
-    // 3. Create new user record in database
-    // 4. Return the created user (without password hash)
-    return Promise.resolve({
-        id: 0, // Placeholder ID
+export const registerUser = async (input: RegisterUserInput): Promise<User> => {
+  try {
+    // Check if username or email already exists
+    const existingUsers = await db.select()
+      .from(usersTable)
+      .where(
+        or(
+          eq(usersTable.username, input.username),
+          eq(usersTable.email, input.email)
+        )
+      )
+      .execute();
+
+    if (existingUsers.length > 0) {
+      const existingUser = existingUsers[0];
+      if (existingUser.username === input.username) {
+        throw new Error('Username already exists');
+      }
+      if (existingUser.email === input.email) {
+        throw new Error('Email already exists');
+      }
+    }
+
+    // Hash the password (simple implementation - in production use bcrypt or similar)
+    const passwordHash = await hashPassword(input.password);
+
+    // Insert new user record
+    const result = await db.insert(usersTable)
+      .values({
         username: input.username,
         email: input.email,
-        password_hash: '', // This should be hashed in real implementation
-        balance: 0,
-        is_admin: false,
-        created_at: new Date(),
-        updated_at: new Date()
-    } as User);
+        password_hash: passwordHash,
+        balance: '0.00', // Convert number to string for numeric column
+        is_admin: false
+      })
+      .returning()
+      .execute();
+
+    // Convert numeric fields back to numbers before returning
+    const user = result[0];
+    return {
+      ...user,
+      balance: parseFloat(user.balance) // Convert string back to number
+    };
+  } catch (error) {
+    console.error('User registration failed:', error);
+    throw error;
+  }
+};
+
+// Simple password hashing function (in production, use bcrypt or similar)
+async function hashPassword(password: string): Promise<string> {
+  // Using built-in crypto for simple hashing (not suitable for production)
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password + 'salt');
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }

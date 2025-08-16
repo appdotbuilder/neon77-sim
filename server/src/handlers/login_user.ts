@@ -1,21 +1,53 @@
+import { db } from '../db';
+import { usersTable } from '../db/schema';
 import { type LoginUserInput, type User } from '../schema';
+import { eq } from 'drizzle-orm';
+import { createHash, pbkdf2Sync } from 'crypto';
 
-export async function loginUser(input: LoginUserInput): Promise<User> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to authenticate a user login.
-    // Implementation should:
-    // 1. Find user by username
-    // 2. Verify password against stored hash
-    // 3. Return user data if authentication successful
-    // 4. Throw error if authentication fails
-    return Promise.resolve({
-        id: 1, // Placeholder ID
-        username: input.username,
-        email: 'user@example.com', // Placeholder email
-        password_hash: '', // Should not be returned in real implementation
-        balance: 0,
-        is_admin: false,
-        created_at: new Date(),
-        updated_at: new Date()
-    } as User);
-}
+// Helper function to hash password using PBKDF2
+const hashPassword = (password: string, salt: string): string => {
+  return pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
+};
+
+// Helper function to verify password
+const verifyPassword = (password: string, hashedPassword: string): boolean => {
+  // Extract salt from stored hash (format: salt:hash)
+  const [salt, hash] = hashedPassword.split(':');
+  if (!salt || !hash) {
+    return false;
+  }
+  
+  const computedHash = hashPassword(password, salt);
+  return computedHash === hash;
+};
+
+export const loginUser = async (input: LoginUserInput): Promise<User> => {
+  try {
+    // Find user by username
+    const users = await db.select()
+      .from(usersTable)
+      .where(eq(usersTable.username, input.username))
+      .execute();
+
+    if (users.length === 0) {
+      throw new Error('Invalid username or password');
+    }
+
+    const user = users[0];
+
+    // Verify password against stored hash
+    const isValidPassword = verifyPassword(input.password, user.password_hash);
+    if (!isValidPassword) {
+      throw new Error('Invalid username or password');
+    }
+
+    // Return user data with numeric fields properly converted
+    return {
+      ...user,
+      balance: parseFloat(user.balance) // Convert numeric field to number
+    };
+  } catch (error) {
+    console.error('User login failed:', error);
+    throw error;
+  }
+};
